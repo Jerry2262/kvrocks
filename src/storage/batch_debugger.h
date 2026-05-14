@@ -124,7 +124,7 @@ struct WriteBatchInspector : public rocksdb::WriteBatch::Handler {
     seen += "MarkCommit(" + xid.ToString() + ")";
     return rocksdb::Status::OK();
   }
-  rocksdb::Status MarkCommitWithTimestamp(const rocksdb::Slice& xid, const rocksdb::Slice& ts) override {
+  rocksdb::Status MarkCommitWithTimestamp(const rocksdb::Slice& xid, const rocksdb::Slice& ts) {
     ++cnt;
     seen += "MarkCommitWithTimestamp(" + xid.ToString() + ", " + ts.ToString(true) + ")";
     return rocksdb::Status::OK();
