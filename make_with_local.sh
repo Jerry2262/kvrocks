@@ -1,1 +1,1 @@
-./x.py build -j`nproc` -D FETCHCONTENT_SOURCE_DIR_ROCKSDB=../../rocksdb
+rm -rf build/ && ./x.py build -j`nproc` -D FETCHCONTENT_SOURCE_DIR_ROCKSDB=../../rocksdb
