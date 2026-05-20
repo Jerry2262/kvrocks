@@ -20,6 +20,7 @@
 
 #pragma once
 #include <string>
+#include <cstdint>
 
 // crc16
 constexpr const uint16_t HASH_SLOTS_MASK = 0x3fff;

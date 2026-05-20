@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 #include <string>
+#include <cstdint>
 
 bool GetFixed8(rocksdb::Slice *input, uint8_t *value);
 bool GetFixed16(rocksdb::Slice *input, uint16_t *value);
