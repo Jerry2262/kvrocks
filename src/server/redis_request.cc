@@ -23,22 +23,72 @@
 #include <glog/logging.h>
 #include <rocksdb/perf_context.h>
 
+#include <charconv>
 #include <chrono>
 #include <memory>
+#include <system_error>
 #include <utility>
 
 #include "cluster/redis_slot.h"
 #include "event_util.h"
-#include "parse_util.h"
 #include "redis_connection.h"
 #include "redis_reply.h"
 #include "server.h"
-#include "util.h"
 
 namespace Redis {
 const size_t PROTO_INLINE_MAX_SIZE = 16 * 1024L;
 const size_t PROTO_BULK_MAX_SIZE = 512 * 1024L * 1024L;
 const size_t PROTO_MULTI_MAX_SIZE = 1024 * 1024L;
+
+namespace {
+
+template <typename T>
+StatusOr<T> ParseInteger(const char *data, size_t len) {
+  T value = 0;
+  auto begin = data;
+  auto end = data + len;
+  auto result = std::from_chars(begin, end, value, 10);
+  if (result.ec != std::errc() || result.ptr != end) {
+    return {Status::NotOK, "invalid integer"};
+  }
+  return value;
+}
+
+size_t CountInlineTokens(const char *data, size_t len) {
+  size_t count = 0;
+  bool in_token = false;
+  for (size_t i = 0; i < len; ++i) {
+    if (data[i] == ' ' || data[i] == '\t') {
+      in_token = false;
+    } else if (!in_token) {
+      in_token = true;
+      ++count;
+    }
+  }
+  return count;
+}
+
+void SplitInlineCommand(const char *data, size_t len, CommandTokens *tokens) {
+  tokens->clear();
+  tokens->reserve(CountInlineTokens(data, len));
+
+  size_t begin = 0;
+  while (begin < len) {
+    while (begin < len && (data[begin] == ' ' || data[begin] == '\t')) {
+      ++begin;
+    }
+    if (begin == len) break;
+
+    size_t end = begin + 1;
+    while (end < len && data[end] != ' ' && data[end] != '\t') {
+      ++end;
+    }
+    tokens->emplace_back(data + begin, end - begin);
+    begin = end + 1;
+  }
+}
+
+}  // namespace
 
 Status Request::Tokenize(evbuffer *input) {
   size_t pipeline_size = 0;
@@ -68,7 +118,7 @@ Status Request::Tokenize(evbuffer *input) {
         pipeline_size++;
         svr_->stats_.IncrInbondBytes(line.length);
         if (line[0] == '*') {
-          auto parse_result = ParseInt<int64_t>(std::string(line.get() + 1, line.length - 1), 10);
+          auto parse_result = ParseInteger<int64_t>(line.get() + 1, line.length - 1);
           if (!parse_result) {
             return Status(Status::NotOK, "Protocol error: invalid multibulk length");
           }
@@ -80,12 +130,14 @@ Status Request::Tokenize(evbuffer *input) {
             multi_bulk_len_ = 0;
             continue;
           }
+          tokens_.clear();
+          tokens_.reserve(static_cast<size_t>(multi_bulk_len_));
           state_ = BulkLen;
         } else {
           if (line.length > PROTO_INLINE_MAX_SIZE) {
             return Status(Status::NotOK, "Protocol error: invalid bulk length");
           }
-          tokens_ = Util::Split(std::string(line.get(), line.length), " \t");
+          SplitInlineCommand(line.get(), line.length, &tokens_);
           commands_.emplace_back(std::move(tokens_));
           state_ = ArrayLen;
         }
@@ -98,14 +150,14 @@ Status Request::Tokenize(evbuffer *input) {
         if (line[0] != '$') {
           return Status(Status::NotOK, "Protocol error: expected '$'");
         }
-        auto parse_result = ParseInt<uint64_t>(std::string(line.get() + 1, line.length - 1), 10);
+        auto parse_result = ParseInteger<uint64_t>(line.get() + 1, line.length - 1);
         if (!parse_result) {
           return Status(Status::NotOK, "Protocol error: invalid bulk length");
         }
-        bulk_len_ = *parse_result;
-        if (bulk_len_ > PROTO_BULK_MAX_SIZE) {
+        if (*parse_result > PROTO_BULK_MAX_SIZE) {
           return Status(Status::NotOK, "Protocol error: invalid bulk length");
         }
+        bulk_len_ = static_cast<size_t>(*parse_result);
         state_ = BulkData;
         break;
       }
