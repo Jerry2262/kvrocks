@@ -1,7 +1,7 @@
 rm -rf build/
 
 march_flags=""
-if [ -f /opt/openEuler/gcc-toolset-14/enable ] && [ "$(uname -m)" = "aarch64" ]; then
+if [ "$1" = "gcc14" ] && [ -f /opt/openEuler/gcc-toolset-14/enable ] && [ "$(uname -m)" = "aarch64" ]; then
     source /opt/openEuler/gcc-toolset-14/enable
     march_flags="-march=armv8.3-a+rcpc"
 fi
